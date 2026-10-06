@@ -1,0 +1,95 @@
+test_500_body_written_and_exit_nonzero (test_project.ClientIndependentPeerTests.test_500_body_written_and_exit_nonzero) ... ok
+test_inconsistent_body_length_rejected (test_project.ClientIndependentPeerTests.test_inconsistent_body_length_rejected) ... ok
+test_independent_server_unknown_types_fragmented_response (test_project.ClientIndependentPeerTests.test_independent_server_unknown_types_fragmented_response) ... ok
+test_peer_close_does_not_retry (test_project.ClientIndependentPeerTests.test_peer_close_does_not_retry) ... ok
+test_wrong_response_id_rejected (test_project.ClientIndependentPeerTests.test_wrong_response_id_rejected) ... ok
+test_binary_empty_unicode_and_default_index (test_project.ServerTests.test_binary_empty_unicode_and_default_index) ... CONNECT 127.0.0.1:51186
+RESPONSE id=1 status=200
+CONNECT 127.0.0.1:51187
+RESPONSE id=1 status=200
+CONNECT 127.0.0.1:51188
+RESPONSE id=1 status=200
+CONNECT 127.0.0.1:51189
+RESPONSE id=1 status=200
+ok
+test_byte_at_a_time_tcp_delivery (test_project.ServerTests.test_byte_at_a_time_tcp_delivery) ... CONNECT 127.0.0.1:51190
+RESPONSE id=1 status=200
+ok
+test_cli_body_only_and_error_exit (test_project.ServerTests.test_cli_body_only_and_error_exit) ... CONNECT 127.0.0.1:51191
+RESPONSE id=1 status=200
+CONNECT 127.0.0.1:51192
+RESPONSE id=1 status=404
+ok
+test_coalesced_tcp_requests (test_project.ServerTests.test_coalesced_tcp_requests) ... CONNECT 127.0.0.1:51193
+RESPONSE id=1 status=200
+RESPONSE id=2 status=200
+ok
+test_duplicate_headers_400 (test_project.ServerTests.test_duplicate_headers_400) ... CONNECT 127.0.0.1:51194
+ok
+test_empty_unknown_frame_is_skipped (test_project.ServerTests.test_empty_unknown_frame_is_skipped) ... CONNECT 127.0.0.1:51195
+SKIP type=255 bytes=0
+RESPONSE id=1 status=200
+ok
+test_header_limits_controls_wrong_direction_and_zero_id (test_project.ServerTests.test_header_limits_controls_wrong_direction_and_zero_id) ... CONNECT 127.0.0.1:51196
+CONNECT 127.0.0.1:51197
+CONNECT 127.0.0.1:51198
+CONNECT 127.0.0.1:51199
+CONNECT 127.0.0.1:51200
+CONNECT 127.0.0.1:51201
+ok
+test_independent_request_and_indexed_literal_response (test_project.ServerTests.test_independent_request_and_indexed_literal_response) ... CONNECT 127.0.0.1:51202
+RESPONSE id=1 status=200
+ok
+test_invalid_utf8_400 (test_project.ServerTests.test_invalid_utf8_400) ... CONNECT 127.0.0.1:51203
+ok
+test_literal_request_header_and_utf8_value (test_project.ServerTests.test_literal_request_header_and_utf8_value) ... CONNECT 127.0.0.1:51204
+RESPONSE id=1 status=200
+ok
+test_malformed_payload_400_then_success (test_project.ServerTests.test_malformed_payload_400_then_success) ... CONNECT 127.0.0.1:51205
+RESPONSE id=8 status=200
+ok
+test_missing_document_root_is_server_error (test_project.ServerTests.test_missing_document_root_is_server_error) ... ok
+test_missing_file_404_then_success_same_connection (test_project.ServerTests.test_missing_file_404_then_success_same_connection) ... CONNECT 127.0.0.1:51206
+RESPONSE id=1 status=404
+RESPONSE id=2 status=200
+ok
+test_non_get_405_directory_404_large_file_413 (test_project.ServerTests.test_non_get_405_directory_404_large_file_413) ... CONNECT 127.0.0.1:51207
+RESPONSE id=1 status=405
+RESPONSE id=2 status=404
+RESPONSE id=3 status=413
+ok
+test_oversize_advertisement_413_and_close (test_project.ServerTests.test_oversize_advertisement_413_and_close) ... CONNECT 127.0.0.1:51208
+ok
+test_trailing_payload_byte_400 (test_project.ServerTests.test_trailing_payload_byte_400) ... CONNECT 127.0.0.1:51209
+ok
+test_traversal_and_symlink_are_blocked (test_project.ServerTests.test_traversal_and_symlink_are_blocked) ... CONNECT 127.0.0.1:51210
+RESPONSE id=1 status=403
+CONNECT 127.0.0.1:51211
+RESPONSE id=1 status=403
+CONNECT 127.0.0.1:51212
+RESPONSE id=1 status=403
+CONNECT 127.0.0.1:51213
+RESPONSE id=1 status=403
+ok
+test_truncated_header_after_half_close_400 (test_project.ServerTests.test_truncated_header_after_half_close_400) ... CONNECT 127.0.0.1:51214
+ok
+test_truncated_payload_after_half_close_400 (test_project.ServerTests.test_truncated_payload_after_half_close_400) ... CONNECT 127.0.0.1:51215
+ok
+test_two_requests_one_open_connection (test_project.ServerTests.test_two_requests_one_open_connection) ... CONNECT 127.0.0.1:51216
+RESPONSE id=1 status=200
+RESPONSE id=2 status=200
+ok
+test_unassigned_header_id_400 (test_project.ServerTests.test_unassigned_header_id_400) ... CONNECT 127.0.0.1:51217
+ok
+test_unknown_flags_are_ignored (test_project.ServerTests.test_unknown_flags_are_ignored) ... CONNECT 127.0.0.1:51218
+RESPONSE id=1 status=200
+ok
+test_unknown_frame_then_known_request (test_project.ServerTests.test_unknown_frame_then_known_request) ... CONNECT 127.0.0.1:51219
+SKIP type=239 bytes=16
+RESPONSE id=1 status=200
+ok
+
+----------------------------------------------------------------------
+Ran 28 tests in 1.420s
+
+OK

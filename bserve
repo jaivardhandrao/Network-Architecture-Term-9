@@ -1,0 +1,155 @@
+#!/usr/bin/env python3
+"""Serve read-only files over BHTTP/1; Python 3.10+, no dependencies."""
+
+import argparse
+import errno
+import mimetypes
+import os
+import socket
+import socketserver
+import stat
+import sys
+from urllib.parse import unquote, urlsplit
+
+from bhttp import MAX_FILE, REQUEST, RESPONSE, ProtocolError, decode_request, encode_response, read_frame
+
+
+class FileStatus(Exception):
+    def __init__(self, status):
+        self.status = status
+
+
+def get_file(root, path):
+    """Walk from a root descriptor without following symlinks (macOS/Linux)."""
+    try:
+        parsed = urlsplit(path)
+        if parsed.scheme or parsed.netloc or parsed.fragment:
+            raise FileStatus(400)
+        decoded = unquote(parsed.path, encoding="utf-8", errors="strict")
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise FileStatus(400) from exc
+    if "\\" in decoded or any(ord(c) < 32 or ord(c) == 127 for c in decoded):
+        raise FileStatus(403)
+    parts = decoded.split("/")[1:]
+    if any(p in (".", "..") for p in parts):
+        raise FileStatus(403)
+    parts = [p for p in parts if p]
+    if not parts:
+        parts = ["index.html"]
+    try:
+        directory = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+    except OSError as exc:
+        raise FileStatus(500) from exc
+    try:
+        for part in parts[:-1]:
+            next_dir = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+            os.close(directory)
+            directory = next_dir
+        descriptor = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+        try:
+            info = os.fstat(descriptor)
+            if not stat.S_ISREG(info.st_mode):
+                raise FileStatus(404)
+            if info.st_size > MAX_FILE:
+                raise FileStatus(413)
+            with os.fdopen(descriptor, "rb", closefd=False) as stream:
+                body = stream.read(MAX_FILE + 1)
+            if len(body) > MAX_FILE:
+                raise FileStatus(413)
+            return body, parts[-1]
+        finally:
+            os.close(descriptor)
+    except OSError as exc:
+        if exc.errno in (errno.EACCES, errno.EPERM, errno.ELOOP):
+            raise FileStatus(403) from exc
+        if exc.errno in (errno.ENOENT, errno.ENOTDIR):
+            raise FileStatus(404) from exc
+        raise FileStatus(500) from exc
+    finally:
+        os.close(directory)
+
+
+def response(request_id, status, body=None, filename=None, closing=False):
+    if body is None:
+        body = f"{status}\n".encode("ascii")
+    media = mimetypes.guess_type(filename)[0] if filename else "text/plain"
+    headers = {
+        "content-type": media or "application/octet-stream",
+        "content-length": str(len(body)),
+        "server": "bserve/1",
+        "connection": "close" if closing else "keep-alive",
+        "cache-control": "no-store",
+        "x-request-id": str(request_id),
+        "x-course": "network-architecture",
+    }
+    if filename:
+        headers["x-file-name"] = filename
+    return encode_response(status, headers, body, request_id)
+
+
+class Handler(socketserver.BaseRequestHandler):
+    def handle(self):
+        self.request.settimeout(30)
+        print(f"CONNECT {self.client_address[0]}:{self.client_address[1]}", file=sys.stderr, flush=True)
+        while True:
+            frame = None
+            try:
+                frame = read_frame(self.request)
+                if frame is None:
+                    return
+                # Extensions are length-delimited and do not mutate request state.
+                if frame.kind not in (REQUEST, RESPONSE):
+                    print(f"SKIP type={frame.kind} bytes={len(frame.payload)}", file=sys.stderr, flush=True)
+                    continue
+                method, path, _ = decode_request(frame)
+                if method != 1:
+                    reply = response(frame.request_id, 405)
+                else:
+                    try:
+                        body, filename = get_file(self.server.root, path)
+                        reply = response(frame.request_id, 200, body, filename)
+                    except FileStatus as exc:
+                        reply = response(frame.request_id, exc.status)
+                self.request.sendall(reply.to_bytes())
+                print(f"RESPONSE id={frame.request_id} status={int.from_bytes(reply.payload[:2], 'big')}", file=sys.stderr, flush=True)
+            except ProtocolError as exc:
+                request_id = frame.request_id if frame else exc.request_id
+                try:
+                    self.request.sendall(response(request_id, exc.status, closing=exc.fatal).to_bytes())
+                except OSError:
+                    pass
+                if exc.fatal:
+                    return
+            except (OSError, socket.timeout):
+                return
+
+
+class Server(socketserver.ThreadingTCPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+    block_on_close = False
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("root", help="read-only document root")
+    parser.add_argument("port", type=int)
+    parser.add_argument("--host", default="127.0.0.1")
+    args = parser.parse_args()
+    if not os.path.isdir(args.root) or not 0 <= args.port <= 65535:
+        parser.error("root must be a directory and port must be between 0 and 65535")
+    try:
+        with Server((args.host, args.port), Handler) as server:
+            server.root = os.path.abspath(args.root)
+            print(f"LISTEN {server.server_address[0]}:{server.server_address[1]} root={args.root}", file=sys.stderr, flush=True)
+            server.serve_forever()
+    except KeyboardInterrupt:
+        return 0
+    except OSError as exc:
+        print(f"bserve: {exc}", file=sys.stderr)
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

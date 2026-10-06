@@ -1,0 +1,162 @@
+#!/usr/bin/env python3
+"""Fetch BHTTP/1 paths with exactly one TCP connection and no retries."""
+
+import argparse
+import re
+import socket
+import struct
+import sys
+from urllib.parse import urlsplit
+
+# This client has its own wire implementation; it never imports server code.
+NAMES = ["host", "user-agent", "accept", "content-type", "content-length", "server", "connection", "cache-control", "x-request-id", "x-course"]
+MAX_PAYLOAD = 1_048_576
+
+
+class ProtocolError(ValueError):
+    pass
+
+
+def dump(raw):
+    lines = []
+    for offset in range(0, len(raw), 16):
+        part = raw[offset:offset + 16]
+        columns = " ".join(f"{byte:02x}" for byte in part)
+        visible = "".join(chr(byte) if 32 <= byte < 127 else "." for byte in part)
+        lines.append(f"{offset:04x}  {columns:<47}  |{visible}|")
+    return "\n".join(lines)
+
+
+def make_request(host, port, path, request_id):
+    path_bytes = path.encode("utf-8")
+    if not 1 <= len(path_bytes) <= 4096 or not path.startswith("/") or any(ord(c) < 32 or ord(c) == 127 for c in path):
+        raise ProtocolError("invalid path length or prefix")
+    fields = [(1, f"{host}:{port}"), (2, "bcurl/1"), (3, "*/*"), (7, "keep-alive"), (9, str(request_id)), (10, "network-architecture")]
+    payload = bytearray(b"\x01" + len(path_bytes).to_bytes(2, "big") + path_bytes + bytes([len(fields)]))
+    for name_id, value in fields:
+        raw_value = value.encode("utf-8")
+        payload += bytes([name_id]) + len(raw_value).to_bytes(2, "big") + raw_value
+    return struct.pack("!IBBH", len(payload), 1, 0, request_id) + payload
+
+
+def receive_exact(sock, count):
+    chunks, remaining = [], count
+    while remaining:
+        piece = sock.recv(remaining)
+        if not piece:
+            raise ProtocolError("peer closed during response")
+        chunks.append(piece)
+        remaining -= len(piece)
+    return b"".join(chunks)
+
+
+def receive_frame(sock):
+    header = receive_exact(sock, 8)
+    length, kind, _, request_id = struct.unpack("!IBBH", header)
+    if length > MAX_PAYLOAD:
+        raise ProtocolError("response frame exceeds 1048576 bytes")
+    payload = receive_exact(sock, length)
+    return kind, request_id, payload, header + payload
+
+
+def parse_response(payload):
+    position = 0
+
+    def take(count):
+        nonlocal position
+        if position + count > len(payload):
+            raise ProtocolError("truncated response field")
+        value = payload[position:position + count]
+        position += count
+        return value
+
+    status = int.from_bytes(take(2), "big")
+    if not 100 <= status <= 599:
+        raise ProtocolError("invalid response status")
+    count = take(1)[0]
+    if count > 32:
+        raise ProtocolError("more than 32 response headers")
+    headers = {}
+    for _ in range(count):
+        name_id = take(1)[0]
+        if name_id == 0:
+            name = take(take(1)[0]).decode("ascii")
+        elif name_id <= len(NAMES):
+            name = NAMES[name_id - 1]
+        else:
+            raise ProtocolError("unassigned response header ID")
+        value = take(int.from_bytes(take(2), "big")).decode("utf-8")
+        if not re.fullmatch(r"[!#$%&'*+.^_`|~0-9a-z-]{1,64}", name) or name in headers:
+            raise ProtocolError("invalid or duplicate response header name")
+        if len(value.encode("utf-8")) > 4096 or any(ord(c) < 32 and c != "\t" or ord(c) == 127 for c in value):
+            raise ProtocolError("invalid response header value")
+        headers[name] = value
+    body = take(int.from_bytes(take(4), "big"))
+    if position != len(payload) or headers.get("content-length") != str(len(body)):
+        raise ProtocolError("inconsistent response body length")
+    return status, headers, body
+
+
+def destination(url):
+    parsed = urlsplit(url if "://" in url else "bhttp://" + url)
+    if parsed.scheme != "bhttp" or parsed.username or parsed.password or not parsed.hostname or parsed.fragment:
+        raise ValueError("use host:port/path or bhttp://host:port/path")
+    port = 9000 if parsed.port is None else parsed.port
+    if port == 0:
+        raise ValueError("port must be between 1 and 65535")
+    path = parsed.path or "/"
+    if parsed.query:
+        path += "?" + parsed.query
+    return parsed.hostname, port, path
+
+
+def fetch(sock, host, port, path, request_id, verbose=False):
+    raw_request = make_request(host, port, path, request_id)
+    if verbose:
+        print(f"> REQUEST id={request_id}\n{dump(raw_request)}", file=sys.stderr)
+    sock.sendall(raw_request)
+    while True:
+        kind, received_id, payload, raw = receive_frame(sock)
+        if verbose:
+            print(f"< FRAME type={kind} id={received_id}\n{dump(raw)}", file=sys.stderr)
+        if kind not in (1, 2):
+            continue
+        if kind != 2 or received_id != request_id:
+            raise ProtocolError("response type or request ID does not match")
+        status, headers, body = parse_response(payload)
+        if verbose:
+            print(f"< STATUS {status}", file=sys.stderr)
+        return status, headers, body
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("-v", "--verbose", action="store_true", help="dump every sent and received frame to stderr")
+    parser.add_argument("urls", nargs="+", help="one or more URLs on the same host and port")
+    args = parser.parse_args()
+    try:
+        destinations = [destination(url) for url in args.urls]
+        origin = destinations[0][:2]
+        if len(destinations) > 65535 or any(d[:2] != origin for d in destinations):
+            parser.error("all URLs must have the same host and port; maximum 65535 requests")
+        result = 0
+        # Exactly one IPv4 socket and one connect call, including DNS failures.
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(5)
+            sock.connect(origin)
+            for request_id, (host, port, path) in enumerate(destinations, 1):
+                status, _, body = fetch(sock, host, port, path, request_id, args.verbose)
+                sys.stdout.buffer.write(body)
+                sys.stdout.buffer.flush()
+                if status >= 400:
+                    result = 1
+                    if not args.verbose:
+                        print(f"bcurl: status {status} for {path}", file=sys.stderr)
+        return result
+    except (OSError, ValueError) as exc:
+        print(f"bcurl: {exc}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,32 @@
+{
+  "complete_exchange": {
+    "request_bytes": 96,
+    "response_bytes": 139,
+    "stdout_sha256": "e39a22ac0e29905c83bc5e51f209b9249aa4db8db722e99c8605dd1624eda3f2",
+    "file_sha256": "e39a22ac0e29905c83bc5e51f209b9249aa4db8db722e99c8605dd1624eda3f2",
+    "exit": 0
+  },
+  "connection_reuse": {
+    "requests": 2,
+    "response_frames": 2,
+    "body_matches": true,
+    "exit": 0
+  },
+  "unknown_and_malformed_recovery": {
+    "unknown_type": 239,
+    "payload_discarded": 6,
+    "statuses_on_same_connection": [
+      200,
+      400,
+      200
+    ]
+  },
+  "environment": {
+    "python": "3.14.6",
+    "os": "Darwin",
+    "machine": "arm64",
+    "transport": "IPv4 TCP loopback",
+    "port": 50790
+  },
+  "accepted_tcp_connections": 3
+}
